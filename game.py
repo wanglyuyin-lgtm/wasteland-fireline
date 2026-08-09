@@ -2,6 +2,7 @@ import pygame
 import random
 import sys
 import math
+import asyncio
 from pathlib import Path
 
 # Window Initialize
@@ -2509,7 +2510,7 @@ def draw_hit_focus(target, timer):
         pygame.draw.circle(screen, (255, 222, 90), (int(sx), int(sy)), max(4, int(getattr(target, "r", 12) * 1.2)), 2)
 
 
-def run_game(test_mode=False):
+async def run_game(test_mode=False):
     global gold_total, mini_enemies, CAMERA_X, CAMERA_Y, UI_MOUSE_DOWN, ACTIVE_PROFILE
     gold_total = 0
     owned_weapons = set(ALL_WEAPON_LIST) if test_mode else {"pistol"}
@@ -3139,9 +3140,12 @@ def run_game(test_mode=False):
             elif state == "gameover":
                 over_controls = draw_game_over_pop()
         pygame.display.flip()
+        # Browser builds must yield once per frame so Safari can paint the
+        # canvas, process input and continue loading packaged assets.
+        await asyncio.sleep(0)
 
     pygame.quit()
 
 
 if __name__ == "__main__":
-    run_game()
+    asyncio.run(run_game())
