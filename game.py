@@ -393,6 +393,31 @@ def draw_centered_card_lines(lines, center_x, center_y, line_gap=5):
 SHOT_SOUNDS = {}
 SOUND_LAST_PLAYED = {}
 
+# Pygbag's browser mixer can occasionally leave a Sound channel running after
+# Safari unlocks the AudioContext.  Route every short effect through a fixed
+# channel and give it a hard end time.  Background music uses the dedicated
+# music stream below and is the only audio that may loop.
+SFX_CHANNELS = {
+    "gun": 0, "sniper": 1, "shotgun": 2, "grenade": 3,
+    "laser": 4, "flame": 5, "boss_alarm": 6, "ui": 7,
+}
+
+def play_sound_once(sound, channel_name, max_ms=None):
+    """Play a short effect exactly once, with a Safari-safe stop deadline."""
+    if not SOUND_READY or sound is None:
+        return
+    try:
+        channel = pygame.mixer.Channel(SFX_CHANNELS[channel_name])
+        channel.stop()
+        if max_ms is None:
+            duration = int(sound.get_length() * 1000) + 120
+            max_ms = max(250, min(duration, 5000))
+        channel.play(sound, loops=0, maxtime=max_ms, fade_ms=0)
+    except Exception:
+        # Desktop fallback; loops=0 is still an explicit one-shot request.
+        sound.stop()
+        sound.play(loops=0, maxtime=max_ms or 3000, fade_ms=0)
+
 WEAPON_SOUND_KIND = {
     "sniper": "sniper",
     "shotgun": "shotgun",
@@ -419,8 +444,7 @@ def play_weapon_sound(weapon):
     sound = SHOT_SOUNDS.get(kind)
     if sound:
         sound.set_volume(WEAPON_SOUND_VOLUME.get(weapon, 0.16))
-        sound.stop()
-        sound.play()
+        play_sound_once(sound, kind)
         SOUND_LAST_PLAYED[kind] = now
 
 # Weapon Data
@@ -574,9 +598,7 @@ def ensure_audio_ready():
 
 def play_ui_button_sound():
     """Short mechanical thump used by every non-combat interface control."""
-    if UI_BUTTON_SOUND:
-        UI_BUTTON_SOUND.stop()
-        UI_BUTTON_SOUND.play()
+    play_sound_once(UI_BUTTON_SOUND, "ui", 1200)
 
 def set_bgm(track):
     """Switch the looping background music only when the battle state changes."""
@@ -590,19 +612,20 @@ def set_bgm(track):
         pygame.mixer.music.stop()
         if track is None:
             return
-        path, volume, loops = BGM_TRACKS[track]
+        path, volume, _configured_loops = BGM_TRACKS[track]
         if not path.exists():
             return
         pygame.mixer.music.load(path)
         pygame.mixer.music.set_volume(volume)
+        # Only ambient battle tracks repeat. Victory and defeat jingles must
+        # always end after one play even if a browser backend mishandles data.
+        loops = -1 if track in ("combat", "boss") else 0
         pygame.mixer.music.play(loops)
     except Exception:
         CURRENT_BGM = None
 
 def play_boss_alarm():
-    if BOSS_ALARM_SOUND:
-        BOSS_ALARM_SOUND.stop()
-        BOSS_ALARM_SOUND.play()
+    play_sound_once(BOSS_ALARM_SOUND, "boss_alarm", 5000)
 
 _button_skin_path = ASSET_DIR / "ui-button-metal-v1.png"
 if _button_skin_path.exists():
