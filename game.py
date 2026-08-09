@@ -15,12 +15,20 @@ clock = pygame.time.Clock()
 
 # Sound is optional: a missing/blocked device never prevents the game from
 # starting.  Effects are synthesized, keeping the project self-contained.
+IS_WEB = sys.platform in ("emscripten", "wasi")
 try:
-    if not pygame.mixer.get_init():
-        pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
-    pygame.mixer.set_num_channels(16)
-    SOUND_READY = True
-except pygame.error:
+    # Safari/Pygbag can expose the mixer before its audio backend is ready.
+    # Initializing or decoding sounds at import time then stops the whole game
+    # before the first frame, leaving only a grey canvas.  Web audio is kept
+    # optional so gameplay always starts; desktop audio remains unchanged.
+    if IS_WEB:
+        SOUND_READY = False
+    else:
+        if not pygame.mixer.get_init():
+            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+        pygame.mixer.set_num_channels(16)
+        SOUND_READY = True
+except Exception:
     SOUND_READY = False
 # Large battlefield with visible landmarks for camera movement.
 WORLD_W, WORLD_H = 4000, 2800
@@ -477,7 +485,7 @@ def load_cc0_sound(filename, volume):
         sound = pygame.mixer.Sound(ASSET_DIR / "sfx" / filename)
         sound.set_volume(volume)
         return sound
-    except pygame.error:
+    except Exception:
         return None
 
 # Sources: OpenGameArt CC0 sound effects (see assets/sfx/SOURCES.md).
@@ -528,7 +536,7 @@ def set_bgm(track):
         pygame.mixer.music.load(path)
         pygame.mixer.music.set_volume(volume)
         pygame.mixer.music.play(loops)
-    except pygame.error:
+    except Exception:
         CURRENT_BGM = None
 
 def play_boss_alarm():
