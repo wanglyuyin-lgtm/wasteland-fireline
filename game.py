@@ -290,18 +290,23 @@ FONT_CACHE = {}
 BUNDLED_CJK_FONT = Path(__file__).resolve().parent / "wasteland-cn.ttf"
 
 def chinese_font(size):
-    """Return a cached CJK font that also exists inside the web package."""
+    """Return the original desktop face, or its web-safe visual match."""
     size = max(8, int(size))
     if size in FONT_CACHE:
         return FONT_CACHE[size]
-    for path in (
-        BUNDLED_CJK_FONT,
+    system_fonts = (
         "/Library/Fonts/Arial Unicode.ttf",
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/System/Library/Fonts/Supplemental/Songti.ttc",
-    ):
+    )
+    candidates = (BUNDLED_CJK_FONT,) if IS_WEB else system_fonts + (BUNDLED_CJK_FONT,)
+    for path in candidates:
         if Path(path).exists():
-            FONT_CACHE[size] = pygame.font.Font(str(path), size)
+            # Noto's web line box is about 7% taller than the original Arial
+            # Unicode UI face.  Matching that metric restores the old visual
+            # proportions without bringing back missing-glyph squares.
+            actual_size = max(8, round(size * 0.93)) if Path(path) == BUNDLED_CJK_FONT else size
+            FONT_CACHE[size] = pygame.font.Font(str(path), actual_size)
             return FONT_CACHE[size]
     FONT_CACHE[size] = pygame.font.SysFont(None, size)
     return FONT_CACHE[size]
@@ -534,6 +539,38 @@ BGM_TRACKS = {
 BOSS_ALARM_SOUND = load_cc0_sound("boss_alarm.wav", 0.48)
 UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
 CURRENT_BGM = None
+
+def ensure_audio_ready():
+    """Unlock Safari audio from the first real click, then load every sound."""
+    global SOUND_READY, BOSS_ALARM_SOUND, UI_BUTTON_SOUND, CURRENT_BGM
+    if SOUND_READY:
+        return True
+    try:
+        # Browsers only allow an AudioContext to start while handling a user
+        # gesture.  Calling this from MOUSEBUTTONDOWN avoids the old grey-screen
+        # startup failure while restoring music and effects after the first click.
+        if not pygame.mixer.get_init():
+            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+        pygame.mixer.set_num_channels(16)
+        SOUND_READY = True
+        SHOT_SOUNDS.update({
+            "gun": load_cc0_sound("gunfire_cc0.wav", 0.20),
+            "sniper": load_cc0_sound("cc0_bangs/shot_01.ogg", 0.30),
+            "shotgun": load_cc0_sound("cc0_bangs/cannon_05.ogg", 0.25),
+            "grenade": load_cc0_sound("gunfire_cc0.wav", 0.20),
+            "laser": load_cc0_sound("laser_cc0.mp3", 0.12),
+            "flame": load_cc0_sound("flame_cc0.mp3", 0.10),
+        })
+        BOSS_ALARM_SOUND = load_cc0_sound("boss_alarm.wav", 0.48)
+        UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
+        pending_bgm = CURRENT_BGM
+        CURRENT_BGM = None
+        if pending_bgm:
+            set_bgm(pending_bgm)
+        return True
+    except Exception:
+        SOUND_READY = False
+        return False
 
 def play_ui_button_sound():
     """Short mechanical thump used by every non-combat interface control."""
@@ -2701,6 +2738,8 @@ async def run_game(test_mode=False):
         fire_pressed_this_frame = False
         for event in pygame.event.get():
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Safari requires audio to be unlocked by a genuine click.
+                ensure_audio_ready()
                 # Preserve a quick single click even if the operating system
                 # sends its matching release event in the same frame.
                 if state == "play":
