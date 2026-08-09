@@ -16,6 +16,7 @@ clock = pygame.time.Clock()
 # Sound is optional: a missing/blocked device never prevents the game from
 # starting.  Effects are synthesized, keeping the project self-contained.
 IS_WEB = sys.platform in ("emscripten", "wasi")
+TARGET_FPS = 50 if IS_WEB else 60
 try:
     # Safari/Pygbag can expose the mixer before its audio backend is ready.
     # Initializing or decoding sounds at import time then stops the whole game
@@ -127,6 +128,19 @@ UI_BUTTON_CACHE = {}
 UI_CARD_SKIN = None
 UI_CARD_CACHE = {}
 UI_MOUSE_DOWN = False
+WEB_GUN_ROTATION_CACHE = {}
+
+def rotated_weapon_sprite(weapon, surface, angle):
+    """Cache quantized weapon rotations in browsers to avoid a costly transform every frame."""
+    if not IS_WEB:
+        return pygame.transform.rotate(surface, -math.degrees(angle))
+    bucket = int(round(math.degrees(angle) / 4.0)) % 90
+    key = (weapon, bucket)
+    cached = WEB_GUN_ROTATION_CACHE.get(key)
+    if cached is None:
+        cached = pygame.transform.rotate(surface, -(bucket * 4))
+        WEB_GUN_ROTATION_CACHE[key] = cached
+    return cached
 
 def button_skin(size, state):
     if UI_BUTTON_SKIN is None:
@@ -272,16 +286,25 @@ BATTLEFIELD_DEBRIS = [
     (1510, 2500, 28, 35), (2180, 2180, 42, 17), (2910, 2460, 30, 24), (3570, 2300, 38, 20),
 ]
 
+FONT_CACHE = {}
+BUNDLED_CJK_FONT = Path(__file__).resolve().parent / "wasteland-cn.ttf"
+
 def chinese_font(size):
-    """Use known macOS Unicode font files, avoiding incomplete font matching."""
+    """Return a cached CJK font that also exists inside the web package."""
+    size = max(8, int(size))
+    if size in FONT_CACHE:
+        return FONT_CACHE[size]
     for path in (
+        BUNDLED_CJK_FONT,
         "/Library/Fonts/Arial Unicode.ttf",
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/System/Library/Fonts/Supplemental/Songti.ttc",
     ):
         if Path(path).exists():
-            return pygame.font.Font(path, size)
-    return pygame.font.SysFont(None, size)
+            FONT_CACHE[size] = pygame.font.Font(str(path), size)
+            return FONT_CACHE[size]
+    FONT_CACHE[size] = pygame.font.SysFont(None, size)
+    return FONT_CACHE[size]
 
 font_big = chinese_font(90)
 font_normal = chinese_font(36)
@@ -1636,7 +1659,7 @@ class Player:
         if self.stun_timer > 0:
             pygame.draw.circle(screen, (255, 235, 80), (int(sx), int(sy)), 25, 2)
         gun = WEAPON_SPRITES[self.current_weapon]
-        rot = pygame.transform.rotate(gun, -math.degrees(self.angle))
+        rot = rotated_weapon_sprite(self.current_weapon, gun, self.angle)
         rect = rot.get_rect(center=world_to_screen(*self.get_weapon_center()))
         screen.blit(rot, rect)
         if self.shoot_cd > 2:
@@ -2468,6 +2491,8 @@ def hit_target(target, damage, particles, damage_popups, focus_state):
     defeated = target.hp <= 0
     target.hit_flash = 8 if defeated else 6
     burst = 20 if defeated else 10
+    if IS_WEB:
+        burst = max(4, int(burst * 0.60))
     impact_colors = (WHITE, YELLOW, ORANGE_FLASH) if defeated else (YELLOW, ORANGE_FLASH)
     for _ in range(burst):
         particles.append(Particle(
@@ -2511,7 +2536,8 @@ def draw_hit_focus(target, timer):
     sprite = directional_sprite(kind, getattr(target, "facing", math.pi / 2))
     if sprite:
         zoom = 1.18 + (1 - progress) * 0.20
-        enlarged = pygame.transform.smoothscale(sprite, (int(sprite.get_width() * zoom), int(sprite.get_height() * zoom)))
+        scaler = pygame.transform.scale if IS_WEB else pygame.transform.smoothscale
+        enlarged = scaler(sprite, (int(sprite.get_width() * zoom), int(sprite.get_height() * zoom)))
         enlarged.set_alpha(int(190 * progress))
         screen.blit(enlarged, enlarged.get_rect(center=(int(sx), int(sy))))
     else:
@@ -2669,7 +2695,7 @@ async def run_game(test_mode=False):
                 world["boss"].slow_timer = max(world["boss"].slow_timer, 120)
 
     while running:
-        clock.tick(60)
+        clock.tick(TARGET_FPS)
         update_hit_shake()
         mouse = pygame.mouse.get_pos()
         fire_pressed_this_frame = False
@@ -3019,10 +3045,14 @@ async def run_game(test_mode=False):
                 particle.update()
                 if particle.life <= 0:
                     world["particles"].remove(particle)
+            if IS_WEB and len(world["particles"]) > 150:
+                del world["particles"][:-150]
             for popup in world["damage_popups"][:]:
                 popup.update()
                 if popup.life <= 0:
                     world["damage_popups"].remove(popup)
+            if IS_WEB and len(world["damage_popups"]) > 70:
+                del world["damage_popups"][:-70]
 
             # A small assist in the final boss fight: grant one random common
             # upgrade every five seconds while the boss is alive.
