@@ -3,6 +3,7 @@ import random
 import sys
 import math
 import asyncio
+from array import array
 from pathlib import Path
 
 # Window Initialize
@@ -26,7 +27,7 @@ try:
         SOUND_READY = False
     else:
         if not pygame.mixer.get_init():
-            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
         pygame.mixer.set_num_channels(16)
         SOUND_READY = True
 except Exception:
@@ -400,6 +401,7 @@ SOUND_LAST_PLAYED = {}
 SFX_CHANNELS = {
     "gun": 0, "sniper": 1, "shotgun": 2, "grenade": 3,
     "laser": 4, "flame": 5, "boss_alarm": 6, "ui": 7,
+    "result_music": 8,
 }
 
 def play_sound_once(sound, channel_name, max_ms=None):
@@ -433,6 +435,14 @@ WEAPON_SOUND_VOLUME = {
     "laser": 0.28, "flamethrower": 0.15, "grenade": 0.28,
 }
 
+# Several downloaded samples contain a long tail (the generic gun sample is
+# two seconds long).  Rapid weapons only use the clean attack portion, so a
+# held trigger cannot stack or repeatedly restart a long noisy tail.
+WEAPON_SOUND_MAX_MS = {
+    "gun": 150, "sniper": 850, "shotgun": 520,
+    "grenade": 650, "laser": 120, "flame": 150,
+}
+
 def play_weapon_sound(weapon):
     if not SOUND_READY:
         return
@@ -444,7 +454,7 @@ def play_weapon_sound(weapon):
     sound = SHOT_SOUNDS.get(kind)
     if sound:
         sound.set_volume(WEAPON_SOUND_VOLUME.get(weapon, 0.16))
-        play_sound_once(sound, kind)
+        play_sound_once(sound, kind, WEAPON_SOUND_MAX_MS[kind])
         SOUND_LAST_PLAYED[kind] = now
 
 # Weapon Data
@@ -533,6 +543,66 @@ def load_cc0_sound(filename, volume):
     """Load a downloaded CC0 sound, silently falling back if unavailable."""
     if not SOUND_READY:
         return None
+
+def load_result_sound(track):
+    """Load a result jingle as a Sound; this is more reliable than web streaming."""
+    if not SOUND_READY:
+        return None
+    try:
+        path, volume, _loops = BGM_TRACKS[track]
+        sound = pygame.mixer.Sound(path)
+        sound.set_volume(volume)
+        return sound
+    except Exception:
+        return None
+
+def synthesize_tone_sequence(sequence, rate=44100):
+    """Create a decoder-free stereo jingle for Safari/Pygbag."""
+    if not SOUND_READY:
+        return None
+    pcm = array("h")
+    for frequencies, duration, volume in sequence:
+        frame_count = max(1, int(rate * duration))
+        for i in range(frame_count):
+            attack = min(1.0, i / max(1, int(rate * 0.008)))
+            release = max(0.0, 1.0 - i / frame_count) ** 1.35
+            if frequencies:
+                wave = sum(
+                    math.sin(2.0 * math.pi * frequency * i / rate)
+                    for frequency in frequencies
+                ) / len(frequencies)
+            else:
+                wave = 0.0
+            sample = int(32767 * volume * attack * release * wave)
+            pcm.append(sample)
+            pcm.append(sample)
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    try:
+        return pygame.mixer.Sound(buffer=pcm.tobytes())
+    except Exception:
+        return None
+
+def synthesize_ui_click():
+    # Very short mechanical click: no decoded tail and no chance to accumulate.
+    return synthesize_tone_sequence([
+        ((1180.0, 210.0), 0.055, 0.24),
+        ((620.0,), 0.035, 0.13),
+    ])
+
+def synthesize_result_jingle(result):
+    if result == "win":
+        return synthesize_tone_sequence([
+            ((523.25, 659.25), 0.16, 0.30),
+            ((659.25, 783.99), 0.16, 0.31),
+            ((783.99, 987.77), 0.20, 0.32),
+            ((1046.50, 1318.51, 1567.98), 0.62, 0.34),
+        ])
+    return synthesize_tone_sequence([
+        ((392.00, 293.66), 0.28, 0.27),
+        ((329.63, 246.94), 0.34, 0.25),
+        ((261.63, 196.00), 0.78, 0.28),
+    ])
     try:
         sound = pygame.mixer.Sound(ASSET_DIR / "sfx" / filename)
         sound.set_volume(volume)
@@ -555,26 +625,38 @@ SHOT_SOUNDS.update({
 BGM_TRACKS = {
     # This version has its head and tail crossfaded, so pygame's repeat point
     # is inaudible instead of producing the old abrupt cut every loop.
-    "combat": (ASSET_DIR / "music" / "combat_loop_seamless.wav", 0.14, -1),
-    "boss": (ASSET_DIR / "music" / "boss_loop.mp3", 0.18, -1),
-    "win": (ASSET_DIR / "music" / "win_jingle.ogg", 0.42, 0),
-    "gameover": (ASSET_DIR / "music" / "game_over.mp3", 0.30, 0),
+    "combat": (ASSET_DIR / "music" / "combat_loop_seamless.wav", 0.12, -1),
+    "boss": (ASSET_DIR / "music" / "boss_loop.mp3", 0.15, -1),
+    "win": (ASSET_DIR / "music" / "win_jingle.ogg", 0.36, 0),
+    "gameover": (ASSET_DIR / "music" / "game_over.mp3", 0.28, 0),
 }
 BOSS_ALARM_SOUND = load_cc0_sound("boss_alarm.wav", 0.48)
 UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
+RESULT_SOUNDS = {
+    "win": load_result_sound("win"),
+    "gameover": load_result_sound("gameover"),
+}
 CURRENT_BGM = None
+BOSS_BGM_START_AT = 0
+UI_SOUND_LAST_PLAYED = -1000
 
 def ensure_audio_ready():
     """Unlock Safari audio from the first real click, then load every sound."""
     global SOUND_READY, BOSS_ALARM_SOUND, UI_BUTTON_SOUND, CURRENT_BGM
+    global UI_SOUND_LAST_PLAYED
     if SOUND_READY:
         return True
     try:
         # Browsers only allow an AudioContext to start while handling a user
         # gesture.  Calling this from MOUSEBUTTONDOWN avoids the old grey-screen
         # startup failure while restoring music and effects after the first click.
-        if not pygame.mixer.get_init():
-            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+        # Recreate the browser mixer once, inside the user's click.  This clears
+        # any stale web channels and matches the 44.1 kHz source material.
+        if pygame.mixer.get_init():
+            pygame.mixer.music.stop()
+            pygame.mixer.stop()
+            pygame.mixer.quit()
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
         pygame.mixer.set_num_channels(16)
         SOUND_READY = True
         SHOT_SOUNDS.update({
@@ -586,7 +668,17 @@ def ensure_audio_ready():
             "flame": load_cc0_sound("flame_cc0.mp3", 0.10),
         })
         BOSS_ALARM_SOUND = load_cc0_sound("boss_alarm.wav", 0.48)
-        UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
+        if IS_WEB:
+            # Avoid browser decoder inconsistencies entirely for short UI and
+            # result sounds. These PCM sounds are generated after audio unlock.
+            UI_BUTTON_SOUND = synthesize_ui_click()
+            RESULT_SOUNDS["win"] = synthesize_result_jingle("win")
+            RESULT_SOUNDS["gameover"] = synthesize_result_jingle("gameover")
+        else:
+            UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
+            RESULT_SOUNDS["win"] = load_result_sound("win") or synthesize_result_jingle("win")
+            RESULT_SOUNDS["gameover"] = load_result_sound("gameover") or synthesize_result_jingle("gameover")
+        UI_SOUND_LAST_PLAYED = -1000
         pending_bgm = CURRENT_BGM
         CURRENT_BGM = None
         if pending_bgm:
@@ -598,11 +690,25 @@ def ensure_audio_ready():
 
 def play_ui_button_sound():
     """Short mechanical thump used by every non-combat interface control."""
-    play_sound_once(UI_BUTTON_SOUND, "ui", 1200)
+    global UI_SOUND_LAST_PLAYED
+    now = pygame.time.get_ticks()
+    if now - UI_SOUND_LAST_PLAYED < 90:
+        return
+    play_sound_once(UI_BUTTON_SOUND, "ui", 140)
+    UI_SOUND_LAST_PLAYED = now
 
 def set_bgm(track):
     """Switch the looping background music only when the battle state changes."""
     global CURRENT_BGM
+    now = pygame.time.get_ticks()
+    if track == "boss" and now < BOSS_BGM_START_AT:
+        if CURRENT_BGM != "boss_wait":
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
+            CURRENT_BGM = "boss_wait"
+        return
     if track == CURRENT_BGM:
         return
     CURRENT_BGM = track
@@ -610,7 +716,13 @@ def set_bgm(track):
         return
     try:
         pygame.mixer.music.stop()
+        pygame.mixer.Channel(SFX_CHANNELS["result_music"]).stop()
         if track is None:
+            return
+        if track in RESULT_SOUNDS and RESULT_SOUNDS[track]:
+            # Result jingles are buffered one-shots on web.  This restores the
+            # missing victory/defeat music without ever allowing it to loop.
+            play_sound_once(RESULT_SOUNDS[track], "result_music", 15000)
             return
         path, volume, _configured_loops = BGM_TRACKS[track]
         if not path.exists():
@@ -625,7 +737,16 @@ def set_bgm(track):
         CURRENT_BGM = None
 
 def play_boss_alarm():
-    play_sound_once(BOSS_ALARM_SOUND, "boss_alarm", 5000)
+    global BOSS_BGM_START_AT, CURRENT_BGM
+    # Stop combat music, play a short warning by itself, then start boss music.
+    # The old version started both together and sounded like two tracks colliding.
+    try:
+        pygame.mixer.music.stop()
+    except Exception:
+        pass
+    CURRENT_BGM = "boss_wait"
+    BOSS_BGM_START_AT = pygame.time.get_ticks() + 1800
+    play_sound_once(BOSS_ALARM_SOUND, "boss_alarm", 1800)
 
 _button_skin_path = ASSET_DIR / "ui-button-metal-v1.png"
 if _button_skin_path.exists():
