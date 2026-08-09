@@ -30,7 +30,7 @@ jobs:
         run: python -m pip install --upgrade pygbag
 
       - name: Build browser game
-        run: python -m pygbag --build --no_opt --disable-sound-format-error .
+        run: python -m pygbag --build --no_opt --disable-sound-format-error --ume_block 0 .
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
