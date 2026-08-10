@@ -17,7 +17,7 @@ clock = pygame.time.Clock()
 # Sound is optional: a missing/blocked device never prevents the game from
 # starting.  Effects are synthesized, keeping the project self-contained.
 IS_WEB = sys.platform in ("emscripten", "wasi")
-TARGET_FPS = 50 if IS_WEB else 60
+TARGET_FPS = 60
 try:
     # Safari/Pygbag can expose the mixer before its audio backend is ready.
     # Initializing or decoding sounds at import time then stops the whole game
@@ -543,6 +543,12 @@ def load_cc0_sound(filename, volume):
     """Load a downloaded CC0 sound, silently falling back if unavailable."""
     if not SOUND_READY:
         return None
+    try:
+        sound = pygame.mixer.Sound(ASSET_DIR / "sfx" / filename)
+        sound.set_volume(volume)
+        return sound
+    except Exception:
+        return None
 
 def load_result_sound(track):
     """Load a result jingle as a Sound; this is more reliable than web streaming."""
@@ -603,12 +609,6 @@ def synthesize_result_jingle(result):
         ((329.63, 246.94), 0.34, 0.25),
         ((261.63, 196.00), 0.78, 0.28),
     ])
-    try:
-        sound = pygame.mixer.Sound(ASSET_DIR / "sfx" / filename)
-        sound.set_volume(volume)
-        return sound
-    except Exception:
-        return None
 
 # Sources: OpenGameArt CC0 sound effects (see assets/sfx/SOURCES.md).
 SHOT_SOUNDS.update({
@@ -668,16 +668,11 @@ def ensure_audio_ready():
             "flame": load_cc0_sound("flame_cc0.mp3", 0.10),
         })
         BOSS_ALARM_SOUND = load_cc0_sound("boss_alarm.wav", 0.48)
-        if IS_WEB:
-            # Avoid browser decoder inconsistencies entirely for short UI and
-            # result sounds. These PCM sounds are generated after audio unlock.
-            UI_BUTTON_SOUND = synthesize_ui_click()
-            RESULT_SOUNDS["win"] = synthesize_result_jingle("win")
-            RESULT_SOUNDS["gameover"] = synthesize_result_jingle("gameover")
-        else:
-            UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34)
-            RESULT_SOUNDS["win"] = load_result_sound("win") or synthesize_result_jingle("win")
-            RESULT_SOUNDS["gameover"] = load_result_sound("gameover") or synthesize_result_jingle("gameover")
+        # Restore the original recorded button and result sounds on every
+        # platform.  The synthesized tones remain only as a decoder fallback.
+        UI_BUTTON_SOUND = load_cc0_sound("ui_button_thump.wav", 0.34) or synthesize_ui_click()
+        RESULT_SOUNDS["win"] = load_result_sound("win") or synthesize_result_jingle("win")
+        RESULT_SOUNDS["gameover"] = load_result_sound("gameover") or synthesize_result_jingle("gameover")
         UI_SOUND_LAST_PLAYED = -1000
         pending_bgm = CURRENT_BGM
         CURRENT_BGM = None
@@ -694,7 +689,7 @@ def play_ui_button_sound():
     now = pygame.time.get_ticks()
     if now - UI_SOUND_LAST_PLAYED < 90:
         return
-    play_sound_once(UI_BUTTON_SOUND, "ui", 140)
+    play_sound_once(UI_BUTTON_SOUND, "ui", 220)
     UI_SOUND_LAST_PLAYED = now
 
 def set_bgm(track):
@@ -775,6 +770,7 @@ MENU_COMMAND_BG = load_ui_background("wasteland-command-background-v1.png")
 # A separate top-down ruined-city arena is used only during combat.  It keeps
 # the menu identity intact while making the battlefield visibly more premium.
 BATTLEFIELD_CITY_BG = load_ui_background("battlefield-ruined-city-v1.png")
+BATTLEFIELD_STAGE_CACHE = {}
 
 # High-detail inventory materials replace the old abstract geometry.  The
 # source art is loaded once and scaled on demand for each UI location.
@@ -2514,24 +2510,26 @@ def draw_game_background(stage):
     base = STAGE_BG_COLORS[stage - 1]
     accent = STAGE_GROUND_ACCENTS[stage - 1]
     if BATTLEFIELD_CITY_BG:
-        # The illustrated overhead city is intentionally distinct from the
-        # command-menu background.  A restrained stage tint preserves clear
-        # enemy, bullet and HUD visibility across all ten zones.
-        screen.blit(BATTLEFIELD_CITY_BG, (0, 0))
-        stage_tint = pygame.Surface((W, H), pygame.SRCALPHA)
-        stage_tint.fill((*base, 54))
-        screen.blit(stage_tint, (0, 0))
-        # Fine tactical corner marks provide motion and stage identity without
-        # laying old road rectangles over the illustrated city background.
-        overlay = pygame.Surface((W, H), pygame.SRCALPHA)
-        edge = (*accent, 92)
-        for x, y, sx, sy in ((26, 26, 1, 1), (W - 26, 26, -1, 1), (26, H - 26, 1, -1), (W - 26, H - 26, -1, -1)):
-            pygame.draw.line(overlay, edge, (x, y), (x + sx * 52, y), 2)
-            pygame.draw.line(overlay, edge, (x, y), (x, y + sy * 52), 2)
-        screen.blit(overlay, (0, 0))
-        vignette = pygame.Surface((W, H), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, 42), vignette.get_rect(), 16)
-        screen.blit(vignette, (0, 0))
+        # The city, tint, corner marks and vignette are static for each stage.
+        # Building them once removes three full-screen alpha allocations and
+        # several blends from every browser frame.
+        cached = BATTLEFIELD_STAGE_CACHE.get(stage)
+        if cached is None:
+            cached = BATTLEFIELD_CITY_BG.copy().convert()
+            stage_tint = pygame.Surface((W, H), pygame.SRCALPHA)
+            stage_tint.fill((*base, 54))
+            cached.blit(stage_tint, (0, 0))
+            overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+            edge = (*accent, 92)
+            for x, y, sx, sy in ((26, 26, 1, 1), (W - 26, 26, -1, 1), (26, H - 26, 1, -1), (W - 26, H - 26, -1, -1)):
+                pygame.draw.line(overlay, edge, (x, y), (x + sx * 52, y), 2)
+                pygame.draw.line(overlay, edge, (x, y), (x, y + sy * 52), 2)
+            cached.blit(overlay, (0, 0))
+            vignette = pygame.Surface((W, H), pygame.SRCALPHA)
+            pygame.draw.rect(vignette, (0, 0, 0, 42), vignette.get_rect(), 16)
+            cached.blit(vignette, (0, 0))
+            BATTLEFIELD_STAGE_CACHE[stage] = cached
+        screen.blit(cached, (0, 0))
         return
     else:
         screen.fill(base)
@@ -3228,14 +3226,14 @@ async def run_game(test_mode=False):
                 particle.update()
                 if particle.life <= 0:
                     world["particles"].remove(particle)
-            if IS_WEB and len(world["particles"]) > 150:
-                del world["particles"][:-150]
+            if IS_WEB and len(world["particles"]) > 110:
+                del world["particles"][:-110]
             for popup in world["damage_popups"][:]:
                 popup.update()
                 if popup.life <= 0:
                     world["damage_popups"].remove(popup)
-            if IS_WEB and len(world["damage_popups"]) > 70:
-                del world["damage_popups"][:-70]
+            if IS_WEB and len(world["damage_popups"]) > 52:
+                del world["damage_popups"][:-52]
 
             # A small assist in the final boss fight: grant one random common
             # upgrade every five seconds while the boss is alive.
