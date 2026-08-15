@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#090e10">
+  <title>废土火线 3D·第一人称</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    if (location.protocol === 'file:') {
+      addEventListener('DOMContentLoaded', () => {
+        const notice = document.createElement('div');
+        notice.className = 'launch-notice';
+        notice.innerHTML = '<strong>启动方式不正确</strong><span>请双击文件夹中的“启动废土火线3D.app”，不要直接打开 index.html。</span>';
+        document.body.appendChild(notice);
+      });
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <section class="panel health-panel">
+      <span class="eyebrow">SURVIVOR STATUS</span>
+      <div class="hud-row"><strong>生命状态</strong><span id="healthText">100 / 100</span></div>
+      <div class="meter"><i id="healthBar"></i></div>
+      <div class="hud-row small"><span>护甲 <b id="armorText">0</b></span><span>废料 <b id="scrapText">0</b></span></div>
+    </section>
+    <section class="panel mission-panel">
+      <span class="eyebrow">WASTELAND FIRELINE / FIRST PERSON</span>
+      <div id="missionText">战区 01 · 清除感染体</div>
+      <div class="hud-row small"><span>击败 <b id="killText">0 / 30</b></span><span>连杀 <b id="comboText">0</b></span></div>
+    </section>
+    <section class="panel weapon-panel">
+      <span class="eyebrow">ACTIVE WEAPON</span>
+      <div class="hud-row"><strong id="weaponName">手枪</strong><span id="ammoText">10 / 10</span></div>
+      <div class="meter ammo"><i id="ammoBar"></i></div>
+      <div class="hud-row small"><span>R 换弹</span><span>战斗中不可换枪</span></div>
+    </section>
+    <section class="panel xp-panel">
+      <span class="eyebrow">TACTICAL AUGMENTATION</span>
+      <div class="hud-row"><strong id="levelText">战术等级 1</strong><span id="xpText">经验块 0 / 5</span></div>
+      <div class="meter xp"><i id="xpBar"></i></div>
+    </section>
+  </div>
+
+  <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+  <div id="damageFlash"></div>
+  <div id="bossHud" class="hidden"><span id="bossName">废土猫王</span><div class="meter boss"><i id="bossBar"></i></div></div>
+  <div id="message"></div>
+  <div id="lookHint">点击战场锁定鼠标 · 移动鼠标转向 · 按 Esc 释放</div>
+
+  <div id="commandScreen" class="screen active command-screen">
+    <main class="command-shell">
+      <header class="command-header">
+        <div class="wz-badge">WZ</div>
+        <div class="command-title"><h1>废土火线</h1><span>作战指挥终端 / WASTELAND COMMAND</span></div>
+        <div class="scrap-box">废料 <b id="menuScrap">0</b></div>
+      </header>
+      <div class="command-columns">
+        <section class="deployment terminal-panel">
+          <h2>战区部署</h2>
+          <p>选择作战区域，清除威胁后解锁后续区域</p>
+          <div id="stageGrid" class="stage-grid"></div>
+        </section>
+        <aside class="operations terminal-panel cyan-panel">
+          <h2>行动控制</h2>
+          <p>整备、记录与军械管理</p>
+          <div class="operation-buttons">
+            <button id="equipmentButton" class="metal-button">装备配置</button>
+            <button id="talentButton" class="metal-button">天赋升级</button>
+            <button id="weaponLabButton" class="metal-button">武器改造</button>
+          </div>
+          <div class="equipment-summary"><span>当前装备</span><strong id="menuWeaponName">手枪</strong></div>
+          <div id="menuMaterials" class="material-summary"></div>
+          <div class="control-list">
+            <span><b>WASD</b> 移动</span><span><b>鼠标</b> 转动视角</span>
+            <span><b>左键</b> 开火</span><span><b>空格</b> 跳跃</span>
+            <span><b>E</b> 翻滚</span><span><b>R</b> 换弹</span>
+          </div>
+        </aside>
+      </div>
+      <footer>系统状态：在线 · 第一人称战斗协议 v1.1</footer>
+    </main>
+  </div>
+
+  <div id="equipmentScreen" class="screen equipment-screen">
+    <section class="equipment-terminal terminal-panel cyan-panel">
+      <div class="equipment-head">
+        <div><span class="eyebrow">LOADOUT TERMINAL</span><h2>装备配置终端</h2></div>
+        <button id="equipmentBackButton" class="metal-button small-button">返回主页</button>
+      </div>
+      <p>只能在局外选择武器；进入战区后配置将被锁定。</p>
+      <div id="weaponGrid" class="weapon-grid"></div>
+    </section>
+  </div>
+
+  <div id="progressionScreen" class="screen progression-screen">
+    <section class="progression-terminal terminal-panel">
+      <div class="equipment-head">
+        <div><span id="progressionEyebrow" class="eyebrow">SURVIVOR DEVELOPMENT</span><h2 id="progressionTitle">生存者天赋</h2></div>
+        <button id="progressionBackButton" class="metal-button small-button">返回主页</button>
+      </div>
+      <div id="progressionMaterials" class="progression-materials"></div>
+      <p id="progressionContext">使用战区材料强化生存者基础能力。</p>
+      <div id="progressionRows" class="progression-rows"></div>
+    </section>
+  </div>
+
+  <div id="upgradeScreen" class="screen upgrade-screen">
+    <section class="upgrade-terminal terminal-panel">
+      <span id="upgradeEyebrow" class="eyebrow">TACTICAL AUGMENTATION</span>
+      <h2 id="upgradeTitle">战术强化终端</h2>
+      <p id="upgradeContext">从废土补给中选择一项作战模块</p>
+      <div id="upgradeCore" class="upgrade-core" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
+      <div id="upgradeCards" class="upgrade-cards"></div>
+      <div id="upgradeSequence" class="upgrade-sequence"></div>
+      <button id="upgradeRefreshButton" class="metal-button upgrade-refresh">刷新（剩余 2/2）</button>
+    </section>
+  </div>
+
+  <div id="resultScreen" class="screen result-screen">
+    <div class="result-card terminal-panel">
+      <span class="eyebrow">MISSION REPORT</span>
+      <h2 id="resultTitle">战区已净化</h2>
+      <p id="resultText">作战目标已完成。</p>
+      <div id="resultMaterials" class="result-materials"></div>
+      <div class="result-actions">
+        <button id="returnMenuButton" class="metal-button">返回终端</button>
+        <button id="restartButton" class="metal-button">再次出击</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mobileControls">
+    <div id="stickBase" aria-label="移动摇杆"><div id="stickKnob"></div><span>移动</span></div>
+    <button id="jumpButton" aria-label="跳跃"><b>↑</b><span>跳跃</span></button>
+    <button id="rollButton" aria-label="翻滚"><b>↻</b><span>翻滚</span></button>
+    <button id="fireButton" aria-label="开火"><b>◎</b><span>开火</span></button>
+  </div>
+  <script type="module" src="game.js"></script>
+</body>
+</html>

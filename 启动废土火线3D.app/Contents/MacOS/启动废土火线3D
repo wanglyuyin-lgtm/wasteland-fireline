@@ -1,0 +1,4 @@
+#!/bin/zsh
+
+GAME_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+/usr/bin/open -a Terminal "$GAME_DIR/启动3D游戏.command"
