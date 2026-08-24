@@ -42,3 +42,112 @@ html.touch-device body.playing #mobileControls{display:block}
 .progression-icon{width:64px;height:64px;overflow:hidden;box-shadow:0 0 12px color-mix(in srgb,var(--material) 30%,transparent)}
 .progression-icon img{width:62px;height:62px;object-fit:contain;filter:drop-shadow(0 3px 3px #000)}
 @media(max-width:620px){.progression-row{grid-template-columns:50px 1fr}.progression-icon{width:46px;height:46px}.progression-icon img{width:44px;height:44px}}
+
+/* Compact combat HUD for phones. The old tablet grid stacked four full panels
+   and covered most of a portrait screen; this keeps all combat information in
+   one slim status row plus a narrow XP strip. */
+@media(max-width:900px){
+  body.playing #hud{
+    inset:max(5px,env(safe-area-inset-top)) max(5px,env(safe-area-inset-right)) auto max(5px,env(safe-area-inset-left));
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    grid-template-rows:auto auto;
+    gap:3px;
+    width:auto;
+    height:auto;
+    align-items:stretch;
+  }
+  body.playing #hud .panel{
+    position:relative;
+    inset:auto;
+    width:auto;
+    min-width:0;
+    padding:5px 7px 4px;
+    clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+    background:linear-gradient(145deg,rgba(7,18,19,.88),rgba(5,10,11,.82));
+    box-shadow:0 4px 12px #0008,inset 0 0 12px #12201f;
+    font-size:10px;
+  }
+  body.playing #hud .panel:before{display:none}
+  body.playing #hud .health-panel{grid-column:1;grid-row:1}
+  body.playing #hud .mission-panel{grid-column:2;grid-row:1}
+  body.playing #hud .weapon-panel{grid-column:3;grid-row:1}
+  body.playing #hud .xp-panel{
+    grid-column:1/4;
+    grid-row:2;
+    display:grid;
+    grid-template-columns:minmax(150px,auto) minmax(80px,1fr);
+    align-items:center;
+    gap:7px;
+    padding:3px 8px;
+    text-align:left;
+    border-color:#2b9f9c;
+  }
+  body.playing #hud .eyebrow{display:none}
+  body.playing #hud .hud-row{min-width:0;gap:4px;font-size:10px;line-height:1.15;white-space:nowrap}
+  body.playing #hud .hud-row>*{min-width:0}
+  body.playing #hud .health-panel .hud-row:first-of-type strong{display:none}
+  body.playing #hud .weapon-panel .hud-row.small{display:none}
+  body.playing #hud .weapon-panel #weaponName,
+  body.playing #hud #missionText{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  body.playing #hud #missionText{font-size:10px;line-height:1.15}
+  body.playing #hud .hud-row.small{margin-top:2px;font-size:8px;line-height:1.1}
+  body.playing #hud .mission-panel .hud-row.small{justify-content:center;gap:8px}
+  body.playing #hud .meter{height:4px;margin-top:3px}
+  body.playing #hud .xp-panel .hud-row{justify-content:flex-start;gap:10px}
+  body.playing #hud .xp-panel .meter{margin:0;height:4px}
+  body.playing #bossHud{
+    top:calc(max(5px,env(safe-area-inset-top)) + 72px);
+    width:min(72vw,520px);
+    font-size:10px;
+    line-height:1.1;
+  }
+  body.playing #bossHud .meter{height:6px;margin-top:3px}
+  body.playing #message{top:18%;max-width:82vw;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+  body.playing #lookHint{display:none}
+
+  body.playing #mobileControls{
+    height:150px;
+    bottom:max(6px,env(safe-area-inset-bottom));
+  }
+  body.playing #stickBase{
+    left:max(12px,env(safe-area-inset-left));
+    bottom:0;
+    width:112px;
+    height:112px;
+  }
+  body.playing #stickKnob{left:35px;top:35px;width:38px;height:38px}
+  body.playing #stickBase>span{bottom:8px;font-size:9px}
+  body.playing #mobileControls button{width:58px;height:58px}
+  body.playing #mobileControls button b{font-size:20px}
+  body.playing #mobileControls button span{font-size:10px}
+  body.playing #fireButton{
+    right:max(12px,env(safe-area-inset-right));
+    bottom:0;
+    width:94px!important;
+    height:94px!important;
+  }
+  body.playing #fireButton b{font-size:32px!important}
+  body.playing #fireButton span{font-size:13px!important}
+  body.playing #jumpButton{right:max(108px,calc(env(safe-area-inset-right) + 108px));bottom:82px}
+  body.playing #rollButton{right:max(116px,calc(env(safe-area-inset-right) + 116px));bottom:10px}
+}
+
+/* Extra tightening for phones held horizontally, where vertical space is the
+   scarcest resource. The controls remain thumb-sized but leave the centre of
+   the battlefield unobstructed. */
+@media(max-width:900px) and (max-height:500px) and (orientation:landscape){
+  body.playing #hud .panel{padding:3px 6px}
+  body.playing #hud .hud-row.small{display:none}
+  body.playing #hud .meter{height:3px;margin-top:2px}
+  body.playing #hud .xp-panel{padding:2px 7px}
+  body.playing #bossHud{top:58px;width:min(54vw,460px)}
+  body.playing #message{top:24%;font-size:12px}
+  body.playing #mobileControls{height:118px}
+  body.playing #stickBase{width:98px;height:98px}
+  body.playing #stickKnob{left:30px;top:30px;width:34px;height:34px}
+  body.playing #fireButton{width:86px!important;height:86px!important}
+  body.playing #mobileControls button{width:52px;height:52px}
+  body.playing #jumpButton{right:max(101px,calc(env(safe-area-inset-right) + 101px));bottom:62px}
+  body.playing #rollButton{right:max(108px,calc(env(safe-area-inset-right) + 108px));bottom:3px}
+}
